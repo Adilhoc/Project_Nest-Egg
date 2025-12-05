@@ -1,0 +1,930 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Trading Journal Dashboard (Fixed Fetch)</title>
+
+  <script src="https://cdn.jsdelivr.net/npm/apexcharts@3.49.2"></script>
+  <script src="https://cdn.jsdelivr.net/npm/papaparse@5.4.1/papaparse.min.js"></script>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://unpkg.com/@phosphor-icons/web"></script>
+  <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Space+Grotesk:wght@500;700&display=swap');
+
+    :root {
+      --bg: #151515;
+      --card: #1E1E1E;
+      --card2: #151515;
+      --border: #2A2A2A;
+      --text: #D4D4D4;
+      --muted: #A3A3A3;
+      --title: #EDEDED;
+      --primary: #818cf8;
+      --win: #34d399;
+      --loss: #fb7185;
+      --warn: #fbbf24;
+    }
+
+    body { background: var(--bg); color: var(--text); font-family: 'Inter', sans-serif; }
+    h1,h2,h3,.brand { font-family: 'Space Grotesk', sans-serif; letter-spacing: -0.02em; }
+
+    .cover-image {
+      background-color: #1e1e24;
+      background-image:
+        radial-gradient(#4b4e69 0.5px, transparent 0.5px),
+        radial-gradient(#4b4e69 0.5px, #1e1e24 0.5px);
+      background-size: 20px 20px;
+      background-position: 0 0, 10px 10px;
+      mask-image: linear-gradient(to bottom, black 50%, transparent 100%);
+    }
+
+    details > summary { list-style: none; }
+    details > summary::-webkit-details-marker { display: none; }
+
+    /* Custom Scrollbar */
+    ::-webkit-scrollbar { height: 6px; width: 6px; }
+    ::-webkit-scrollbar-thumb { background: #373737; border-radius: 4px; }
+    ::-webkit-scrollbar-track { background: transparent; }
+
+    /* Focus States */
+    .notion-focus:focus-within {
+      box-shadow: 0 0 0 2px rgba(129, 140, 248, 0.25);
+      border-color: rgba(129, 140, 248, 0.5);
+    }
+
+    /* Markdown Styles */
+    .prose-invert h1,.prose-invert h2,.prose-invert h3 { color: var(--title); font-weight: 700; margin-top: 1em; margin-bottom: .5em; }
+    .prose-invert p { color: var(--text); line-height: 1.6; margin-bottom: .85em; font-size: 0.95rem; }
+    .prose-invert ul { list-style: disc; padding-left: 1.25em; margin-bottom: .85em; }
+    .prose-invert li { color: var(--muted); margin-bottom: .25em; }
+    .prose-invert strong { color: #fff; font-weight: 600; }
+
+    /* Animations */
+    .shimmer {
+      background: linear-gradient(90deg, #202020 25%, #2a2a2a 50%, #202020 75%);
+      background-size: 200% 100%;
+      animation: shimmer 1.5s infinite;
+    }
+    @keyframes shimmer { 0%{background-position:200% 0} 100%{background-position:-200% 0} }
+
+    /* Chart Tooltip Overrides */
+    .apexcharts-tooltip {
+      background: #1E1E1E !important;
+      border: 1px solid #2A2A2A !important;
+      color: #D4D4D4 !important;
+      box-shadow: 0 4px 20px rgba(0,0,0,0.5) !important;
+      border-radius: 8px !important;
+    }
+    .apexcharts-tooltip-title {
+      background: #252525 !important;
+      border-bottom: 1px solid #2A2A2A !important;
+      font-family: 'Inter', sans-serif !important;
+    }
+    .apexcharts-text { fill: #9B9A97 !important; }
+    .apexcharts-gridline { stroke: #2A2A2A !important; }
+  </style>
+</head>
+
+<body class="pb-20 antialiased selection:bg-indigo-500/30">
+
+  <div class="h-48 w-full cover-image border-b border-[var(--border)] relative"></div>
+
+  <main class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 relative">
+    
+    <div class="-mt-12 mb-10">
+      <div class="relative w-24 h-24 mb-4 select-none">
+        <div class="w-full h-full text-7xl flex items-center justify-center bg-[var(--card)] rounded-full shadow-2xl border border-[var(--border)]">🦄</div>
+      </div>
+      <div class="space-y-2">
+        <h1 class="text-4xl md:text-5xl font-bold text-[var(--title)]">Trading Journal</h1>
+        <div class="flex flex-wrap items-center gap-4 text-sm text-[var(--muted)]">
+          <span class="flex items-center gap-1.5 hover:bg-[var(--card)] px-2 py-1 -ml-2 rounded transition-colors">
+            <i class="ph ph-clock text-base"></i> Last updated: <span id="lastUpdated">—</span>
+          </span>
+          <span id="statusBadge" class="hidden items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold border border-[var(--border)]"></span>
+        </div>
+      </div>
+    </div>
+
+    <div class="mb-12">
+      <div class="bg-[var(--card)] border border-[var(--border)] rounded-xl overflow-hidden shadow-sm">
+        <details open class="group">
+          <summary class="flex items-center justify-between p-4 cursor-pointer hover:bg-[#252525] transition-colors select-none">
+            <div class="flex items-center gap-3">
+              <div class="bg-[#2C2C2C] p-2 rounded border border-[var(--border)]">
+                <i class="ph-fill ph-sliders-horizontal text-lg text-[var(--primary)]"></i>
+              </div>
+              <div>
+                <h3 class="font-semibold text-[var(--title)]">Data Source</h3>
+                <p class="text-xs text-[var(--muted)]">CSV Upload or Google Sheets Link</p>
+              </div>
+            </div>
+            <i class="ph ph-caret-down text-[var(--muted)] group-open:rotate-180 transition-transform duration-300"></i>
+          </summary>
+
+          <div class="p-5 border-t border-[var(--border)] bg-[#1a1a1a]">
+            <div class="grid grid-cols-1 md:grid-cols-12 gap-6 items-end">
+              
+              <div class="md:col-span-5 space-y-2">
+                <label class="text-[10px] font-bold text-[var(--muted)] uppercase tracking-wider pl-1">Data Source URL</label>
+                <div class="flex items-center gap-2 bg-[var(--card2)] border border-[var(--border)] rounded-lg px-3 py-2.5 notion-focus transition-all">
+                  <i class="ph ph-link text-[var(--muted)]"></i>
+                  <input id="csvUrl" type="text" placeholder="Paste Google Sheets link..." class="w-full text-sm outline-none placeholder:text-[#444] text-[var(--text)] bg-transparent" />
+                </div>
+              </div>
+
+              <div class="md:col-span-1 flex justify-center pb-3">
+                <span class="text-xs text-[var(--muted)] font-medium italic">or</span>
+              </div>
+
+              <div class="md:col-span-4 space-y-2">
+                <label class="text-[10px] font-bold text-[var(--muted)] uppercase tracking-wider pl-1">Upload CSV</label>
+                <label class="flex items-center justify-center gap-2 bg-[var(--card2)] border border-[var(--border)] border-dashed hover:border-[var(--primary)] hover:bg-[var(--card)] rounded-lg px-3 py-2.5 cursor-pointer transition-all group/file">
+                  <i class="ph ph-upload-simple text-[var(--muted)] group-hover/file:text-[var(--primary)]"></i>
+                  <span id="fileName" class="text-sm text-[var(--muted)] truncate group-hover/file:text-[var(--text)]">Select File</span>
+                  <input id="file" type="file" accept=".csv,.txt" class="hidden" />
+                </label>
+              </div>
+
+              <div class="md:col-span-2">
+                <button id="loadBtn" class="w-full bg-[var(--title)] hover:bg-white text-black font-bold text-sm py-2.5 px-4 rounded-lg shadow-lg hover:shadow-xl transition-all flex items-center justify-center gap-2 transform active:scale-[0.98]">
+                  <i class="ph-bold ph-lightning"></i> Analyze
+                </button>
+              </div>
+            </div>
+
+            <div class="mt-4 flex flex-wrap items-center gap-3 text-xs text-[var(--muted)] pl-1">
+              <div class="flex items-center gap-2 bg-[var(--card2)] px-2 py-1 rounded border border-[var(--border)]">
+                <i class="ph-bold ph-coins"></i>
+                <span>Est. Charges: ₹</span>
+                <input id="charges" type="number" value="14000" class="w-16 border-b border-[var(--border)] focus:border-[var(--title)] outline-none text-center text-[var(--text)] bg-transparent" />
+              </div>
+              <span class="text-[#555] ml-auto">*Note: Google Sheets must be "Anyone with the link" (Public).</span>
+            </div>
+
+            <div id="msg" class="mt-4 text-sm font-medium empty:hidden flex items-center gap-2 animate-pulse"></div>
+          </div>
+        </details>
+      </div>
+    </div>
+
+    <div id="emptyState" class="py-24 text-center">
+      <div class="inline-flex items-center justify-center w-24 h-24 bg-[var(--card)] rounded-3xl mb-6 shadow-inner border border-[var(--border)]">
+        <i class="ph-duotone ph-chart-polar text-5xl text-[var(--muted)]"></i>
+      </div>
+      <h3 class="text-2xl font-bold text-[var(--title)] mb-3">Ready to visualise?</h3>
+      <p class="text-[var(--muted)] max-w-md mx-auto leading-relaxed">
+        Load your trade CSV to generate equity curves, drawdowns, behavioural patterns, and an optional local AI coaching note.
+      </p>
+    </div>
+
+    <div id="dashboard" class="hidden space-y-10 pb-24">
+
+      <section class="border border-[var(--border)] rounded-2xl p-1 bg-gradient-to-br from-[#202020] to-[#1a1a1a] shadow-2xl">
+        <div class="p-6 md:p-8">
+          <div class="flex flex-col md:flex-row md:items-center justify-between gap-6 mb-6">
+            <div class="flex items-center gap-4">
+              <div class="p-3 bg-indigo-500/10 border border-indigo-500/20 rounded-xl text-indigo-400">
+                <i class="ph-fill ph-sparkle text-2xl"></i>
+              </div>
+              <div>
+                <h2 class="text-xl font-bold text-white">AI Performance Coach</h2>
+                <p class="text-sm text-[var(--muted)]">Runs locally in your browser (WebGPU). Private & Secure.</p>
+              </div>
+            </div>
+
+            <div class="flex flex-wrap items-center gap-3">
+              <select id="modelSelect" class="bg-[#111] border border-[var(--border)] text-[var(--text)] text-xs px-3 py-2.5 rounded-lg outline-none focus:border-[var(--primary)]">
+                <option value="Llama-3.2-1B-Instruct-q4f16_1-MLC">Llama 3.2 1B (Fastest)</option>
+                <option value="Phi-3-mini-4k-instruct-q4f16_1-MLC">Phi-3 Mini 4k (Better)</option>
+              </select>
+
+              <button id="initAiBtn" class="flex items-center gap-2 px-4 py-2.5 bg-[#2C2C2C] hover:bg-[#343434] text-white rounded-lg text-xs font-bold transition-colors border border-[var(--border)]">
+                <i class="ph-bold ph-cpu"></i> Load Model
+              </button>
+
+              <button id="generateAiBtn" class="flex items-center gap-2 px-4 py-2.5 bg-indigo-600 hover:bg-indigo-500 text-white rounded-lg text-xs font-bold transition-colors shadow-lg shadow-indigo-900/20">
+                <i class="ph-bold ph-magic-wand"></i> Generate Report
+              </button>
+            </div>
+          </div>
+
+          <div id="aiWarn" class="hidden text-xs text-[var(--warn)] bg-[#2a210a] border border-[#5c4a11] rounded-lg px-4 py-3 mb-4 flex items-center gap-2">
+            <i class="ph-bold ph-warning"></i>
+            <span><strong>WebGPU Missing:</strong> AI features are disabled on this browser. The charts below will still work.</span>
+          </div>
+
+          <div id="aiLoading" class="hidden space-y-4 py-6 max-w-2xl mx-auto">
+            <div class="space-y-3">
+              <div class="h-2 w-full bg-[var(--card)] rounded-full overflow-hidden">
+                <div id="aiProgressBar" class="h-full bg-indigo-500 w-0 transition-all duration-300"></div>
+              </div>
+              <div class="flex justify-between text-xs text-indigo-300">
+                <span>Loading Model...</span>
+                <span id="aiProgressText">0%</span>
+              </div>
+            </div>
+            <div class="space-y-2 opacity-50">
+              <div class="h-3 w-3/4 rounded shimmer"></div>
+              <div class="h-3 w-1/2 rounded shimmer"></div>
+            </div>
+          </div>
+
+          <div id="aiResult" class="hidden">
+            <div class="bg-[var(--card2)] border border-[var(--border)] rounded-xl p-6 md:p-8 prose prose-invert max-w-none text-sm leading-relaxed shadow-inner" id="aiTextContent"></div>
+            <div class="mt-4 flex items-center justify-end gap-2 pt-4 border-t border-[var(--border)] opacity-70 hover:opacity-100 transition-opacity">
+              <button id="ttsBtn" class="flex items-center gap-2 px-3 py-1.5 border border-[var(--border)] hover:bg-[#2C2C2C] text-[var(--text)] rounded text-xs font-semibold transition-colors">
+                <i class="ph-fill ph-speaker-high"></i> Read Aloud
+              </button>
+              <button id="stopTtsBtn" class="flex items-center gap-2 px-3 py-1.5 border border-[var(--border)] hover:bg-[#2C2C2C] text-[var(--text)] rounded text-xs font-semibold transition-colors">
+                <i class="ph-fill ph-stop"></i> Stop
+              </button>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section>
+        <div class="flex items-center gap-3 mb-5 border-b border-[var(--border)] pb-3">
+          <div class="p-1.5 bg-[#2C2C2C] rounded-md"><i class="ph-duotone ph-squares-four text-xl text-[var(--text)]"></i></div>
+          <h2 class="text-xl font-bold text-[var(--title)]">Performance Overview</h2>
+        </div>
+        <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-5" id="kpiGrid"></div>
+      </section>
+
+      <section class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+        
+        <div class="lg:col-span-2 space-y-3">
+          <div class="flex items-center justify-between px-1">
+            <div class="flex items-center gap-2">
+              <div class="w-2 h-2 rounded-full bg-[var(--primary)]"></div>
+              <h3 class="font-bold text-[var(--title)]">Equity Curve</h3>
+            </div>
+            <span class="text-[10px] text-[var(--muted)] font-mono uppercase bg-[var(--card)] border border-[var(--border)] px-1.5 py-0.5 rounded">Gross vs Net</span>
+          </div>
+          <div class="bg-[var(--card)] border border-[var(--border)] rounded-xl p-1 shadow-lg relative h-[450px]">
+             <div id="eqPlot" class="w-full h-full"></div>
+          </div>
+        </div>
+
+        <div class="space-y-3">
+          <div class="flex items-center gap-2 px-1">
+            <div class="w-2 h-2 rounded-full bg-[var(--loss)]"></div>
+            <h3 class="font-bold text-[var(--title)]">Drawdown</h3>
+          </div>
+          <div class="bg-[var(--card)] border border-[var(--border)] rounded-xl p-1 shadow-lg h-[450px]">
+             <div id="ddPlot" class="w-full h-full"></div>
+          </div>
+        </div>
+      </section>
+
+      <section>
+        <div class="flex items-center gap-3 mb-6 border-b border-[var(--border)] pb-3">
+          <div class="p-1.5 bg-[#2C2C2C] rounded-md"><i class="ph-duotone ph-binoculars text-xl text-[var(--text)]"></i></div>
+          <h2 class="text-xl font-bold text-[var(--title)]">Behavioural Analysis</h2>
+        </div>
+
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6">
+          <div class="bg-[var(--card)] rounded-xl p-5 border border-[var(--border)] h-[350px] flex flex-col">
+            <div class="flex items-center gap-2 mb-2 flex-shrink-0">
+              <i class="ph-fill ph-calendar-blank text-[var(--muted)]"></i>
+              <h4 class="font-semibold text-sm text-[var(--text)]">Daily Net P&amp;L</h4>
+            </div>
+            <div id="dailyPlot" class="flex-grow w-full"></div>
+          </div>
+
+          <div class="bg-[var(--card)] rounded-xl p-5 border border-[var(--border)] h-[350px] flex flex-col">
+            <div class="flex items-center gap-2 mb-2 flex-shrink-0">
+              <i class="ph-fill ph-fire text-[var(--warn)]"></i>
+              <h4 class="font-semibold text-sm text-[var(--text)]">Overtrading Monitor (Fills/Day)</h4>
+            </div>
+            <div id="churnPlot" class="flex-grow w-full"></div>
+          </div>
+        </div>
+
+        <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+          <div class="bg-[var(--card)] border border-[var(--border)] rounded-xl p-4 h-[300px] flex flex-col">
+            <h4 class="text-[10px] font-bold text-[var(--muted)] uppercase tracking-wide mb-2 flex-shrink-0">P&amp;L Distribution</h4>
+            <div id="histPlot" class="flex-grow w-full"></div>
+          </div>
+
+          <div class="lg:col-span-2 bg-[var(--card)] border border-[var(--border)] rounded-xl p-4 h-[300px] flex flex-col">
+            <h4 class="text-[10px] font-bold text-[var(--muted)] uppercase tracking-wide mb-2 flex-shrink-0">Hold Time vs Profitability</h4>
+            <div id="holdPlot" class="flex-grow w-full"></div>
+          </div>
+        </div>
+      </section>
+
+      <section class="grid grid-cols-1 lg:grid-cols-2 gap-8">
+        <div class="bg-[var(--card)] border border-[var(--border)] rounded-xl overflow-hidden flex flex-col max-h-[400px]">
+          <div class="p-4 border-b border-[var(--border)] bg-[#252525] flex items-center justify-between sticky top-0 z-10">
+            <div class="flex items-center gap-2">
+              <i class="ph-fill ph-trophy text-[var(--warn)]"></i>
+              <h3 class="font-semibold text-[var(--title)]">Top Performers</h3>
+            </div>
+          </div>
+          <div class="overflow-y-auto custom-scrollbar flex-grow">
+            <div id="topEventsTable"></div>
+          </div>
+        </div>
+
+        <div class="bg-[var(--card)] border border-[var(--border)] rounded-xl overflow-hidden flex flex-col h-full">
+          <div class="p-4 border-b border-[var(--border)] bg-[#252525] flex items-center justify-between sticky top-0 z-10">
+            <div class="flex items-center gap-2">
+              <i class="ph-fill ph-warning-octagon text-[var(--loss)]"></i>
+              <h3 class="font-semibold text-[var(--title)]">Activity Impact</h3>
+            </div>
+          </div>
+          <div class="overflow-y-auto custom-scrollbar flex-grow">
+            <div id="qtTable"></div>
+          </div>
+        </div>
+      </section>
+
+      <section class="pb-10">
+        <div class="flex items-center gap-3 mb-4">
+          <div class="p-1.5 bg-[#2C2C2C] rounded-md"><i class="ph-duotone ph-chart-bar text-xl text-[var(--text)]"></i></div>
+          <h2 class="text-xl font-bold text-[var(--title)]">Instrument Performance</h2>
+        </div>
+        <div class="border border-[var(--border)] rounded-xl p-4 bg-[var(--card)] h-[500px]">
+          <div id="tickerPlot" class="w-full h-full"></div>
+        </div>
+      </section>
+    </div>
+  </main>
+
+  <script type="module">
+    import * as webllm from "https://esm.run/@mlc-ai/web-llm";
+
+    let charts = {};
+    let globalStats = null;
+    let llmEngine = null;
+    let lastAiText = "";
+    let aiReady = false;
+
+    const $ = (id) => document.getElementById(id);
+    const fmtINR = (n) => (n === null || Number.isNaN(n)) ? "—" : ("₹" + Math.round(n).toLocaleString("en-IN"));
+    const fmtPct = (x) => (x === null || Number.isNaN(x)) ? "—" : ((x * 100).toFixed(1) + "%");
+    
+    const toNumber = (v) => {
+      if (v === null || v === undefined) return NaN;
+      if (typeof v === "number") return v;
+      const s = String(v).trim();
+      if (!s) return NaN;
+      const first = s.match(/-?\d+(\.\d+)?/);
+      if (!first) return NaN;
+      return Number(first[0].replace(/,/g, ""));
+    };
+
+    const setStatus = (msg, type) => {
+      const el = $("statusBadge");
+      el.classList.remove("hidden");
+      el.className = "flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-semibold border";
+      if (type === "ok") {
+        el.classList.add("bg-[#064e3b]", "text-[#34d399]", "border-[#065f46]");
+        el.innerHTML = `<i class="ph-fill ph-check-circle"></i> ${msg}`;
+      } else {
+        el.classList.add("bg-[#4c0519]", "text-[#fb7185]", "border-[#881337]");
+        el.innerHTML = `<i class="ph-fill ph-warning-circle"></i> ${msg}`;
+      }
+    };
+
+    const setMsg = (html, isError=true) => {
+      const el = $("msg");
+      el.innerHTML = html ? `<i class="ph-bold ${isError ? "ph-warning" : "ph-check-circle"}"></i> ${html}` : "";
+      el.style.color = isError ? "var(--loss)" : "var(--win)";
+    };
+
+    const setUpdatedNow = () => {
+      $("lastUpdated").textContent = new Date().toLocaleString(undefined, { year: "numeric", month: "short", day: "2-digit", hour: "2-digit", minute: "2-digit" });
+    };
+
+    // --- FIX 1: Robust URL Normalizer ---
+    function normaliseSheetsToCsvUrl(url) {
+      let u = String(url || "").trim();
+      if (!u) return "";
+      // If already export, return
+      if (u.includes("/export") || u.includes("output=csv") || u.includes("tqx=out:csv")) return u;
+      
+      // Extract ID and GID
+      const idMatch = u.match(/\/d\/([a-zA-Z0-9-_]+)/);
+      if (!idMatch) return u; // Not a sheets link? Return as is.
+      
+      const id = idMatch[1];
+      const gidMatch = u.match(/[#&?]gid=([0-9]+)/);
+      const gid = gidMatch ? gidMatch[1] : "0"; // Default to first sheet
+
+      return `https://docs.google.com/spreadsheets/d/${id}/export?format=csv&gid=${gid}`;
+    }
+
+    // --- FIX 2: Better Fetcher with Proxy Support ---
+    async function fetchTextWithFallback(url) {
+      const bust = (url.includes("?") ? "&" : "?") + "t=" + Date.now();
+      
+      // 1. Try Direct (Works if server supports CORS)
+      try {
+        const res = await fetch(url + bust, { cache: "no-store" });
+        if (res.ok) return await res.text();
+      } catch (e) { console.log("Direct fetch failed, attempting proxy..."); }
+
+      // 2. Try AllOrigins Proxy (Works for many sites)
+      try {
+        const proxy1 = `https://api.allorigins.win/raw?url=${encodeURIComponent(url + bust)}`;
+        const res = await fetch(proxy1, { cache: "no-store" });
+        if (res.ok) return await res.text();
+      } catch (e) { console.log("AllOrigins failed, attempting backup proxy..."); }
+
+      // 3. Try CorsProxy.io (Often better for Google Sheets)
+      try {
+        // CorsProxy usually takes the raw URL appended
+        const proxy2 = `https://corsproxy.io/?${encodeURIComponent(url)}`;
+        const res = await fetch(proxy2, { cache: "no-store" });
+        if (res.ok) return await res.text();
+      } catch (e) { console.log("CorsProxy failed."); }
+
+      throw new Error("Unable to fetch data. Ensure the Google Sheet is 'Anyone with the link' (Public) or use the 'Upload CSV' button.");
+    }
+
+    // CSV Utilities
+    const normKey = (s) => String(s||"").toLowerCase().replace(/[._]/g, " ").replace(/[\/\-]+/g, " ").replace(/\s+/g, " ").trim();
+    function buildHeaderMap(row) {
+      const map = new Map();
+      for (const k of Object.keys(row || {})) map.set(normKey(k), k);
+      return map;
+    }
+    function findCol(headerMap, candidates) {
+      for (const cand of candidates) {
+        const hit = headerMap.get(normKey(cand));
+        if (hit) return hit;
+      }
+      const keys = Array.from(headerMap.keys());
+      for (const cand of candidates) {
+        const c = normKey(cand);
+        const found = keys.find(k => k.includes(c));
+        if (found) return headerMap.get(found);
+      }
+      return null;
+    }
+
+    // Date Parsing
+    function parseDateOnly(dRaw) {
+      const s = String(dRaw || "").trim();
+      if (!s) return null;
+      if (/^\d{4}-\d{2}-\d{2}/.test(s)) {
+        const [y, m, d] = s.slice(0, 10).split("-").map(Number);
+        return { y, m, d };
+      }
+      const m1 = s.match(/^(\d{1,2})[\/-](\d{1,2})[\/-](\d{4})/);
+      if (m1) return { d: Number(m1[1]), m: Number(m1[2]), y: Number(m1[3]) };
+      const d = new Date(s);
+      if (Number.isNaN(d.getTime())) return null;
+      return { y: d.getFullYear(), m: d.getMonth() + 1, d: d.getDate() };
+    }
+    function parseTimeOnly(tRaw) {
+      const s = String(tRaw || "").trim();
+      if (!s) return { hh: 0, mm: 0, ss: 0 };
+      const m = s.match(/(\d{1,2}):(\d{2})(?::(\d{2}))?/);
+      if (!m) return { hh: 0, mm: 0, ss: 0 };
+      return { hh: Number(m[1]), mm: Number(m[2]), ss: Number(m[3] || 0) };
+    }
+    function buildTimestamp(dateRaw, timeRaw) {
+      const d = parseDateOnly(dateRaw);
+      if (!d) return null;
+      const t = parseTimeOnly(timeRaw);
+      return new Date(d.y, d.m - 1, d.d, t.hh, t.mm, t.ss).getTime();
+    }
+
+    // Calculation Core
+    function fifoRealisedPerTicker(rows) {
+      const byTicker = new Map();
+      for (const r of rows) {
+        if (!byTicker.has(r.ticker)) byTicker.set(r.ticker, []);
+        byTicker.get(r.ticker).push(r);
+      }
+      const out = [];
+      for (const [ticker, list] of byTicker.entries()) {
+        list.sort((a, b) => a.ts - b.ts);
+        const openLots = [];
+        for (const r of list) {
+          let qty = r.qtySigned;
+          const price = r.price;
+          let realisedPnl = 0;
+          let realisedQty = 0;
+          let holdWeightedMin = 0;
+
+          while (Math.abs(qty) > 1e-9 && openLots.length && Math.sign(qty) !== Math.sign(openLots[0].qty)) {
+            const lot = openLots[0];
+            const amt = Math.min(Math.abs(qty), Math.abs(lot.qty));
+            if (lot.qty > 0) realisedPnl += (price - lot.price) * amt;
+            else realisedPnl += (lot.price - price) * amt;
+            realisedQty += amt;
+            holdWeightedMin += ((r.ts - lot.ts) / 60000) * amt;
+            if (lot.qty > 0) lot.qty -= amt; else lot.qty += amt;
+            if (qty > 0) qty -= amt; else qty += amt;
+            if (Math.abs(lot.qty) <= 1e-9) openLots.shift();
+          }
+          if (Math.abs(qty) > 1e-9) openLots.push({ qty, price, ts: r.ts });
+          out.push({ ...r, realisedPnl, realisedQty, avgHold: realisedQty ? (holdWeightedMin / realisedQty) : null });
+        }
+      }
+      out.sort((a, b) => a.ts - b.ts);
+      return out;
+    }
+
+    function createHistData(vals, bins = 15) {
+      const clean = vals.filter(v => Number.isFinite(v));
+      if (!clean.length) return { cats: [], data: [] };
+      const min = Math.floor(Math.min(...clean));
+      const max = Math.ceil(Math.max(...clean));
+      const range = max - min;
+      const step = range / bins || 100;
+      const cats = [];
+      const data = new Array(bins).fill(0);
+      for (let i = 0; i < bins; i++) cats.push(Math.round(min + i * step));
+      for (const v of clean) {
+        let idx = Math.floor((v - min) / step);
+        if (idx < 0) idx = 0; if (idx >= bins) idx = bins - 1;
+        data[idx]++;
+      }
+      return { cats, data };
+    }
+
+    // Charting
+    function destroyCharts() {
+      for (const k of Object.keys(charts)) {
+        try { charts[k]?.destroy?.(); } catch {}
+      }
+      charts = {};
+    }
+
+    function baseApexOpts() {
+      return {
+        theme: { mode: "dark" },
+        chart: {
+          fontFamily: "Inter",
+          toolbar: { show: false },
+          zoom: { enabled: false },
+          background: "transparent",
+          height: "100%",
+          width: "100%"
+        },
+        grid: { borderColor: "#2A2A2A" },
+        dataLabels: { enabled: false },
+        stroke: { width: 2 },
+        xaxis: {
+          axisBorder: { show: false },
+          axisTicks: { show: false },
+          labels: { style: { colors: "#A3A3A3" }, datetimeFormatter: { year: 'yyyy', month: "MMM 'yy", day: 'dd MMM' } },
+          tooltip: { enabled: false }
+        },
+        yaxis: { labels: { style: { colors: "#A3A3A3" } } },
+        legend: { labels: { colors: "#A3A3A3" } }
+      };
+    }
+
+    function kpiCard(icon, title, value, sub, valueClass = "text-[var(--title)]") {
+      return `
+        <div class="bg-[var(--card)] border border-[var(--border)] p-5 rounded-xl shadow-sm hover:border-[#3F3F3F] transition-all">
+          <div class="flex items-center justify-between mb-3">
+            <div class="text-[11px] font-bold text-[#666] uppercase tracking-wider">${title}</div>
+            <div class="bg-[#252525] p-1.5 rounded text-[#666]"><i class="${icon} text-lg"></i></div>
+          </div>
+          <div class="text-3xl font-bold ${valueClass} tracking-tight font-[Space Grotesk]">${value}</div>
+          <div class="text-[11px] text-[var(--muted)] mt-2 font-medium">${sub}</div>
+        </div>
+      `;
+    }
+
+    function renderTag(val, type) {
+      if (type === "pnl") {
+        const isPos = val > 0;
+        return `<span class="inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs font-semibold ${isPos ? "bg-[#064e3b] text-[#34d399]" : "bg-[#4c0519] text-[#fb7185]"}">
+          ${isPos ? '<i class="ph-bold ph-arrow-up-right"></i>' : '<i class="ph-bold ph-arrow-down-right"></i>'}
+          ${fmtINR(val)}
+        </span>`;
+      }
+      if (type === "bucket") {
+        return `<span class="px-2 py-0.5 rounded text-xs font-semibold bg-[#2C2C2C] text-[var(--text)] border border-[#3F3F3F]">${val}</span>`;
+      }
+      return String(val ?? "—");
+    }
+
+    function renderTable(id, cols, data) {
+      let h = `<table class="w-full text-left border-collapse"><thead><tr class="bg-[#1F1F1F] border-b border-[var(--border)]">`;
+      for (const c of cols) h += `<th class="py-3 px-4 text-[10px] font-bold text-[#666] uppercase tracking-wider sticky top-0 bg-[#1F1F1F]">${c.label}</th>`;
+      h += `</tr></thead><tbody class="divide-y divide-[var(--border)] bg-[var(--card2)]">`;
+      for (const r of data) {
+        h += `<tr class="hover:bg-[#1E1E1E] transition-colors group">`;
+        for (const c of cols) {
+          let v = r[c.key];
+          if (c.fmt) v = c.fmt(v, r);
+          if (c.type) v = renderTag(v, c.type);
+          h += `<td class="py-2.5 px-4 text-xs md:text-sm text-[var(--text)] ${c.bold ? "font-semibold text-white" : ""}">${v ?? "—"}</td>`;
+        }
+        h += `</tr>`;
+      }
+      h += `</tbody></table>`;
+      $(id).innerHTML = h;
+    }
+
+    // AI Logic
+    function aiSetLoading(on) {
+      $("aiLoading").classList.toggle("hidden", !on);
+      if (on) $("aiResult").classList.add("hidden");
+    }
+    function setAiProgress(pct, label="") {
+      const clamped = Math.max(0, Math.min(100, pct));
+      $("aiProgressBar").style.width = clamped + "%";
+      $("aiProgressText").textContent = label ? label : (clamped.toFixed(0) + "%");
+    }
+    function webgpuAvailable() { return !!navigator.gpu; }
+    async function initLocalAI() {
+      if (!webgpuAvailable()) { $("aiWarn").classList.remove("hidden"); return false; }
+      $("aiWarn").classList.add("hidden");
+      if (llmEngine && aiReady) return true;
+      aiSetLoading(true); setAiProgress(0, "Initializing Engine...");
+      const chosen = $("modelSelect").value;
+      try {
+        const list = webllm.prebuiltAppConfig?.model_list || [];
+        if (list.length && !list.map(m=>m.model_id).includes(chosen)) {
+           $("modelSelect").value = list[0].model_id; 
+        }
+      } catch {}
+      const initProgressCallback = (p) => {
+        let pct = 0; let label = "";
+        if (typeof p === "number") pct = p * 100;
+        else if (p && typeof p === "object") {
+          if (typeof p.progress === "number") pct = p.progress * 100;
+          if (typeof p.text === "string") label = p.text;
+        }
+        setAiProgress(pct, label || (pct.toFixed(0) + "%"));
+      };
+      try {
+        llmEngine = new webllm.MLCEngine({ initProgressCallback });
+        await llmEngine.reload($("modelSelect").value);
+        aiReady = true; setAiProgress(100, "Ready"); return true;
+      } catch (e) {
+        console.error(e); aiReady = false; setMsg("AI Engine failed to load.", true);
+        $("aiWarn").classList.remove("hidden"); return false;
+      } finally { aiSetLoading(false); }
+    }
+    function buildAiPrompt(stats) {
+      return {
+        system: "You are a senior trading psychologist. Be strict, direct, and concise. Use Markdown.",
+        user: `Analyze this trading session:\n- Net P&L: ${fmtINR(stats.net)}\n- Win Rate: ${fmtPct(stats.winRate)} (${stats.wins}W/${stats.losses}L)\n- Profit Factor: ${stats.pf}\n- Trades: ${stats.count}\n- Max DD: ${fmtINR(stats.maxDD)}\n- Overtrading correlation: ${stats.corr.toFixed(2)}\n\n1. Summarize performance.\n2. Identify biggest behavioral leak.\n3. Give 3 rules for next time.`
+      };
+    }
+    async function generateAiReportLocal() {
+      if (!globalStats) return;
+      const ok = await initLocalAI();
+      if (!ok) return;
+      const btn = $("generateAiBtn");
+      btn.disabled = true; btn.classList.add("opacity-50");
+      aiSetLoading(true); setAiProgress(0, "Analyzing data...");
+      try {
+        const { system, user } = buildAiPrompt(globalStats);
+        const reply = await llmEngine.chat.completions.create({ messages: [{ role: "system", content: system }, { role: "user", content: user }], temperature: 0.7 });
+        const text = reply?.choices?.[0]?.message?.content || "Error generating report.";
+        lastAiText = text;
+        $("aiTextContent").innerHTML = marked.parse(text);
+        $("aiResult").classList.remove("hidden");
+      } catch (e) { console.error(e); $("aiTextContent").innerHTML = `<p class="text-[var(--loss)]">AI Generation Failed.</p>`; $("aiResult").classList.remove("hidden"); }
+      finally { aiSetLoading(false); btn.disabled = false; btn.classList.remove("opacity-50"); }
+    }
+
+    // Main Analysis
+    async function runAnalysis() {
+      const btn = $("loadBtn");
+      btn.disabled = true; btn.innerHTML = `<i class="ph ph-spinner animate-spin"></i> Processing...`;
+      setMsg(""); setStatus("Processing...", "ok");
+      
+      try {
+        const charges = Number($("charges").value) || 0;
+        const urlRaw = $("csvUrl").value.trim();
+        const file = $("file").files?.[0];
+        let csvText = "";
+        
+        if (file) {
+          csvText = await file.text();
+        } else if (urlRaw) {
+          // Normalise and fetch
+          const url = normaliseSheetsToCsvUrl(urlRaw);
+          csvText = await fetchTextWithFallback(url);
+        } else {
+          throw new Error("Please provide a CSV file or URL.");
+        }
+
+        const parsed = Papa.parse(csvText, { header: true, skipEmptyLines: true });
+        const data = parsed?.data || [];
+        if (!data.length) throw new Error("Empty or invalid CSV.");
+        const headerMap = buildHeaderMap(data[0]);
+
+        const cDate = findCol(headerMap, ["date", "trade date", "day"]);
+        const cTime = findCol(headerMap, ["time", "trade time"]);
+        const cDateTime = findCol(headerMap, ["datetime", "timestamp"]);
+        const cTicker = findCol(headerMap, ["ticker", "symbol", "instrument"]);
+        const cSide = findCol(headerMap, ["buy/sell", "side", "type"]);
+        const cQty = findCol(headerMap, ["qty", "quantity"]);
+        const cPrice = findCol(headerMap, ["price", "rate", "avg price"]);
+        const cTotal = findCol(headerMap, ["amount", "value"]);
+
+        if (!cTicker || !cPrice) throw new Error("Required columns missing: Ticker or Price.");
+
+        const trades = [];
+        for (const r of data) {
+          const ticker = String(r[cTicker] ?? "").trim();
+          if (!ticker) continue;
+          const price = toNumber(r[cPrice]);
+          if (!Number.isFinite(price)) continue;
+          const qtyRaw = cQty ? r[cQty] : null;
+          const qtyAbs = cQty ? Math.abs(toNumber(qtyRaw)) : 1;
+          if (!Number.isFinite(qtyAbs) || qtyAbs <= 0) continue;
+          let sign = -1;
+          const sideRaw = cSide ? String(r[cSide] ?? "").toUpperCase().trim() : "";
+          if (sideRaw) {
+            if (sideRaw.includes("B") || sideRaw.includes("LONG")) sign = 1;
+            if (sideRaw.includes("S") || sideRaw.includes("SHORT")) sign = -1;
+          } else if (cTotal) {
+            if (toNumber(r[cTotal]) < 0) sign = 1;
+          }
+          const ts = cDateTime ? new Date(String(r[cDateTime])).getTime() : buildTimestamp(r[cDate], cTime ? r[cTime] : "00:00");
+          if (!Number.isFinite(ts)) continue;
+          trades.push({ ts, dateKey: new Date(ts).toISOString().slice(0, 10), ticker, qtySigned: qtyAbs * sign, price });
+        }
+        
+        if (trades.length < 2) throw new Error("Not enough valid trade rows found.");
+
+        const enriched = fifoRealisedPerTicker(trades);
+        const chargePerFill = enriched.length ? (charges / enriched.length) : 0;
+        let cumGross = 0; let cumNet = 0; let peakGross = -Infinity;
+        const eq = []; const daily = {}; const closes = [];
+
+        for (const r of enriched) {
+          const realised = r.realisedPnl || 0;
+          const net = realised - chargePerFill;
+          cumGross += realised; cumNet += net;
+          peakGross = Math.max(peakGross, cumGross);
+          eq.push({ x: r.ts, g: cumGross, n: cumNet, dd: cumGross - peakGross });
+          if (!daily[r.dateKey]) daily[r.dateKey] = { fills: 0, net: 0 };
+          daily[r.dateKey].fills++; daily[r.dateKey].net += net;
+          if ((r.realisedQty || 0) > 0) closes.push(r);
+        }
+
+        if (closes.length < 2) throw new Error("No trade closures detected (check if you have both buys and sells).");
+
+        const wins = closes.filter(x => x.realisedPnl > 0);
+        const losses = closes.filter(x => x.realisedPnl < 0);
+        const winRate = wins.length / closes.length;
+        const grossWin = wins.reduce((a, b) => a + b.realisedPnl, 0);
+        const grossLoss = losses.reduce((a, b) => a + b.realisedPnl, 0);
+        const pf = Math.abs(grossWin) / Math.abs(grossLoss || 1);
+        
+        // Correlation
+        const dVals = Object.values(daily);
+        let corr = 0;
+        if (dVals.length >= 2) {
+           const xs = dVals.map(v => v.fills);
+           const ys = dVals.map(v => v.net);
+           const n = xs.length;
+           const sumX = xs.reduce((a,b)=>a+b,0), sumY = ys.reduce((a,b)=>a+b,0);
+           const sumXY = xs.reduce((a,b,i)=>a+b*ys[i],0);
+           const sumX2 = xs.reduce((a,b)=>a+b*b,0), sumY2 = ys.reduce((a,b)=>a+b*b,0);
+           const num = (n*sumXY)-(sumX*sumY);
+           const den = Math.sqrt((n*sumX2-sumX**2)*(n*sumY2-sumY**2));
+           corr = den ? (num/den) : 0;
+        }
+
+        globalStats = { net: cumNet, gross: cumGross, winRate, wins: wins.length, losses: losses.length, pf: pf.toFixed(2), count: closes.length, maxDD: Math.min(...eq.map(e => e.dd)), corr };
+
+        $("emptyState").classList.add("hidden");
+        $("dashboard").classList.remove("hidden");
+        setUpdatedNow();
+        setStatus(`Analyzed ${closes.length} closed trades`, "ok");
+        
+        $("kpiGrid").innerHTML = [
+          kpiCard("ph-bold ph-wallet", "Net P&L", fmtINR(cumNet), `Gross: ${fmtINR(cumGross)}`, cumNet>=0 ? "text-[var(--win)]" : "text-[var(--loss)]"),
+          kpiCard("ph-bold ph-target", "Win Rate", fmtPct(winRate), `${wins.length} W / ${losses.length} L`),
+          kpiCard("ph-bold ph-scales", "Profit Factor", pf.toFixed(2), `Avg Win: ${fmtINR(wins.length ? grossWin/wins.length : 0)}`),
+          kpiCard("ph-bold ph-chart-bar", "Expectancy", fmtINR(cumGross / closes.length), "Per Trade (Gross)")
+        ].join("");
+
+        destroyCharts();
+        const base = baseApexOpts();
+
+        charts.eq = new ApexCharts($("eqPlot"), {
+          ...base,
+          chart: { ...base.chart, type: "area" },
+          xaxis: { ...base.xaxis, type: "datetime" },
+          series: [{ name: "Net", data: eq.map(d => [d.x, d.n]) }, { name: "Gross", data: eq.map(d => [d.x, d.g]) }],
+          colors: ["var(--primary)", "#525252"],
+          stroke: { width: [2, 1], dashArray: [0, 4] },
+          fill: { type: "gradient", gradient: { opacityFrom: 0.3, opacityTo: 0.05 } }
+        });
+        charts.eq.render();
+
+        charts.dd = new ApexCharts($("ddPlot"), {
+          ...base,
+          chart: { ...base.chart, type: "area" },
+          xaxis: { ...base.xaxis, type: "datetime" },
+          series: [{ name: "Drawdown", data: eq.map(d => [d.x, d.dd]) }],
+          colors: ["var(--loss)"],
+          fill: { type: "solid", opacity: 0.1 }
+        });
+        charts.dd.render();
+
+        charts.daily = new ApexCharts($("dailyPlot"), {
+          ...base,
+          chart: { ...base.chart, type: "bar" },
+          xaxis: { ...base.xaxis, categories: Object.keys(daily).sort() },
+          series: [{ name: "Net P&L", data: Object.keys(daily).sort().map(k => daily[k].net) }],
+          colors: [({ value }) => (value < 0 ? "var(--loss)" : "var(--win)")]
+        });
+        charts.daily.render();
+
+        charts.churn = new ApexCharts($("churnPlot"), {
+          ...base,
+          chart: { ...base.chart, type: "area" },
+          xaxis: { ...base.xaxis, categories: Object.keys(daily).sort() },
+          series: [{ name: "Fills", data: Object.keys(daily).sort().map(k => daily[k].fills) }],
+          colors: ["var(--warn)"],
+          stroke: { curve: "stepline" },
+          fill: { opacity: 0.2 }
+        });
+        charts.churn.render();
+
+        const hist = createHistData(closes.map(c => c.realisedPnl), 15);
+        charts.hist = new ApexCharts($("histPlot"), {
+          ...base,
+          chart: { ...base.chart, type: "bar" },
+          xaxis: { ...base.xaxis, categories: hist.cats },
+          series: [{ name: "Trades", data: hist.data }],
+          colors: ["#737373"]
+        });
+        charts.hist.render();
+
+        charts.hold = new ApexCharts($("holdPlot"), {
+          ...base,
+          chart: { ...base.chart, type: "scatter" },
+          xaxis: { ...base.xaxis, type: "numeric", title: { text: "Minutes", style: { color: "#555" } } },
+          series: [{ name: "Trade", data: closes.filter(c => Number.isFinite(c.avgHold)).map(c => [c.avgHold, c.realisedPnl]) }],
+          colors: ["#737373"],
+          markers: { size: 3 }
+        });
+        charts.hold.render();
+
+        const tMap = {}; for (const c of closes) tMap[c.ticker] = (tMap[c.ticker] || 0) + (c.realisedPnl || 0);
+        const tArr = Object.entries(tMap).sort((a, b) => b[1] - a[1]).slice(0, 20);
+        charts.tick = new ApexCharts($("tickerPlot"), {
+          ...base,
+          chart: { ...base.chart, type: "bar" },
+          plotOptions: { bar: { horizontal: true, borderRadius: 2, barHeight: "70%" } },
+          xaxis: { ...base.xaxis, categories: tArr.map(x => x[0]) },
+          series: [{ name: "Total P&L", data: tArr.map(x => x[1]) }],
+          colors: [({ value }) => (value < 0 ? "var(--loss)" : "var(--win)")]
+        });
+        charts.tick.render();
+
+        // Tables
+        renderTable("topEventsTable",
+          [{ label: "Date", key: "ts", fmt: v=>new Date(v).toLocaleDateString() }, { label: "Ticker", key: "ticker", bold: true }, { label: "Hold", key: "avgHold", fmt: v => Math.round(v)+"m" }, { label: "P&L", key: "realisedPnl", type: "pnl" }],
+          [...closes].sort((a,b)=>(b.realisedPnl)-(a.realisedPnl)).slice(0, 10)
+        );
+
+        // Bucket Logic
+        const fs = dVals.map(v=>v.fills).sort((a,b)=>a-b);
+        const q1 = fs[Math.floor(fs.length*0.25)]||0, q3 = fs[Math.floor(fs.length*0.75)]||0;
+        const buckets = { Low: [], Medium: [], High: [] };
+        for (const v of dVals) {
+           if (v.fills <= q1) buckets.Low.push(v);
+           else if (v.fills <= q3) buckets.Medium.push(v);
+           else buckets.High.push(v);
+        }
+        renderTable("qtTable",
+          [{ label: "Activity", key: "name", type: "bucket" }, { label: "Days", key: "count" }, { label: "Avg Net", key: "avg", type: "pnl" }],
+          Object.entries(buckets).map(([name,arr])=>({ name, count: arr.length, avg: arr.length ? arr.reduce((a,b)=>a+b.net,0)/arr.length : 0 }))
+        );
+
+      } catch (e) { console.error(e); setMsg(e.message, true); setStatus("Error", "err"); }
+      finally { $("loadBtn").disabled = false; $("loadBtn").innerHTML = `<i class="ph-bold ph-lightning"></i> Analyze`; }
+    }
+
+    $("file").addEventListener("change", (e) => {
+      if (e.target.files?.[0]) $("fileName").innerText = e.target.files[0].name;
+    });
+    $("loadBtn").addEventListener("click", runAnalysis);
+    $("initAiBtn").addEventListener("click", async () => { if(await initLocalAI()) setMsg("AI Ready.", false); });
+    $("generateAiBtn").addEventListener("click", generateAiReportLocal);
+    $("ttsBtn").addEventListener("click", () => {
+       const u = new SpeechSynthesisUtterance(lastAiText.replace(/[*#]/g, ""));
+       window.speechSynthesis.speak(u);
+    });
+    $("stopTtsBtn").addEventListener("click", () => window.speechSynthesis.cancel());
+
+    setUpdatedNow();
+    if (!webgpuAvailable()) $("aiWarn").classList.remove("hidden");
+  </script>
+</body>
+</html>
